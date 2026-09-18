@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IoT Sensor Simulation - HoneyChain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/iot_sensor/frontend/style.css">
+</head>
+<body>
+<header class="page-header">
+  <a class="brand" href="/">HoneyChain</a>
+  <a class="back-link" href="/">Back to Home</a>
+</header>
+<main class="page-shell">
+  <section class="intro">
+    <p class="eyebrow">IOT SENSOR / SIMULATION</p>
+    <h1>Send a hive reading.</h1>
+    <p>Choose a registered hive, set the sensor values, and save a new historical reading.</p>
+  </section>
+
+  <section class="sensor-panel" aria-labelledby="sensor-title">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">LIVE INPUT</p>
+        <h2 id="sensor-title">Hive sensor data</h2>
+      </div>
+      <label class="hive-picker">Hive
+        <select id="hive-select" required>
+          <option value="">Loading hives...</option>
+        </select>
+      </label>
+    </div>
+    <div class="hive-summary" id="hive-summary">Select a hive to see its details.</div>
+    <form id="sensor-form" class="sensor-form">
+      <div class="controls">
+        <label class="control">
+          <span><b>Temperature</b><output id="temperature-value">34.5 °C</output></span>
+          <input id="temperature" type="range" min="0" max="50" step="0.1" value="34.5">
+        </label>
+        <label class="control">
+          <span><b>Humidity</b><output id="humidity-value">62 %</output></span>
+          <input id="humidity" type="range" min="0" max="100" step="1" value="62">
+        </label>
+        <label class="control">
+          <span><b>CO2</b><output id="co2-value">850 ppm</output></span>
+          <input id="co2" type="range" min="0" max="3000" step="10" value="850">
+        </label>
+        <label class="control">
+          <span><b>Weight</b><output id="weight-value">42.3 kg</output></span>
+          <input id="weight" type="range" min="0" max="100" step="0.1" value="42.3">
+        </label>
+        <label class="control">
+          <span><b>Sound</b><output id="sound-value">58</output></span>
+          <input id="sound" type="range" min="0" max="100" step="1" value="58">
+        </label>
+        <label class="control">
+          <span><b>Bee Count</b><output id="bee-count-value">18,500</output></span>
+          <input id="bee-count" type="range" min="0" max="50000" step="100" value="18500">
+        </label>
+      </div>
+      <div class="form-footer">
+        <p id="form-message" class="form-message" role="status"></p>
+        <button class="update-button" type="submit">Update Data</button>
+      </div>
+    </form>
+  </section>
+</main>
+<script src="/assets/iot_sensor/frontend/iot_sensor.js"></script>
+</body>
+</html>

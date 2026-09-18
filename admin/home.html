@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HoneyChain Admin</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #f7f1df, #edf5ed);
+      color: #183026;
+    }
+    .card {
+      width: min(680px, 90vw);
+      background: rgba(255,255,255,0.85);
+      border: 1px solid #d7e0d8;
+      border-radius: 18px;
+      padding: 40px 32px;
+      box-shadow: 0 20px 60px rgba(22,44,37,0.08);
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(2.2rem, 5vw, 4rem);
+      letter-spacing: -0.05em;
+    }
+    p {
+      margin: 0 0 28px;
+      color: #50635d;
+      font-size: 1.05rem;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 200px;
+      padding: 16px 22px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: 0.2s ease;
+      border: 1px solid transparent;
+    }
+    .btn.primary {
+      background: #174d41;
+      color: white;
+    }
+    .btn.secondary {
+      background: #f4efe3;
+      border-color: #d9d0b7;
+      color: #183026;
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      opacity: 0.96;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>HoneyChain Admin</h1>
+    <p>Choose the section you want to manage.</p>
+    <div class="actions">
+      <a class="btn primary" href="/requests">Requests</a>
+      <a class="btn secondary" href="/iotdata">IoT Data</a>
+    </div>
+  </main>
+</body>
+</html>
