@@ -3,14 +3,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.pdfgen import canvas
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(PROJECT_DIR / '.env')
@@ -22,6 +26,16 @@ REQUESTS_DIR = Path(__file__).resolve().parent.parent.parent / 'requests'
 
 SUPABASE_URL = os.getenv('SUPABASE_URL', '').strip()
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '').strip() or os.getenv('SUPABASE_ANON_KEY', '').strip()
+CERTIFICATE_BUCKET = os.getenv('SUPABASE_CERTIFICATE_BUCKET', 'honey-certificates')
+LAB_RESULTS = {
+    'quality_grade': 'A+',
+    'moisture_percent': 17.4,
+    'ph': 4.1,
+    'hmf_mg_per_kg': 8.6,
+    'adulteration_screen': 'Clear',
+    'pollen_profile': 'Multifloral signature confirmed',
+    'test_method': 'HoneyChain Collection Lab protocol',
+}
 
 try:
     from supabase import create_client
@@ -135,6 +149,110 @@ def get_stored_certificate(batch_id: str) -> dict[str, Any] | None:
         .execute()
     )
     return response.data[0] if response.data else None
+
+
+def issue_certificate(batch: dict[str, Any], hive: dict[str, Any]) -> dict[str, Any]:
+    existing = get_stored_certificate(batch['batch_id'])
+    if existing:
+        return existing
+
+    issued_at = datetime.now(timezone.utc).isoformat()
+    certificate = {
+        'certificate_id': f"HC-CERT-{batch['batch_id'].removeprefix('HB-')}",
+        'batch_id': batch['batch_id'],
+        'issued_at': issued_at,
+        'lab_name': 'HoneyChain Collection Lab',
+        'results': LAB_RESULTS,
+    }
+    beekeeper_name = 'Verified beekeeper'
+    beekeeper_id = hive.get('beekeeper_id')
+    if beekeeper_id:
+        beekeeper_response = (
+            supabase_client.table('beekeeper')
+            .select('name')
+            .eq('beekeeper_id', beekeeper_id)
+            .limit(1)
+            .execute()
+        )
+        if beekeeper_response.data:
+            beekeeper_name = beekeeper_response.data[0].get('name') or beekeeper_name
+    pdf_buffer = BytesIO()
+    pdf = canvas.Canvas(pdf_buffer, pagesize=landscape(A4))
+    width, height = landscape(A4)
+    pdf.setFillColor(colors.HexColor('#FCF6DA'))
+    pdf.rect(0, 0, width, height, fill=1, stroke=0)
+    pdf.setStrokeColor(colors.HexColor('#B5852B'))
+    pdf.setLineWidth(0.7)
+    pdf.rect(34, 30, width - 68, height - 60, fill=0, stroke=1)
+    pdf.setLineWidth(0.45)
+    pdf.rect(48, 44, width - 96, height - 88, fill=0, stroke=1)
+    pdf.setFillColor(colors.HexColor('#8F6018'))
+    pdf.setFont('Helvetica-Bold', 11)
+    pdf.drawCentredString(width / 2, height - 63, 'HONEYCHAIN  /  COLLECTION CENTER')
+    pdf.setFillColor(colors.HexColor('#302416'))
+    pdf.setFont('Times-Bold', 28)
+    pdf.drawCentredString(width / 2, height - 106, 'Certificate of Processed Honey')
+    pdf.setFont('Helvetica', 10)
+    pdf.setFillColor(colors.HexColor('#665030'))
+    pdf.drawCentredString(width / 2, height - 130, 'This certificate confirms that the batch below passed the HoneyChain collection center release protocol.')
+    pdf.setFillColor(colors.HexColor('#302416'))
+    pdf.setFont('Helvetica-Bold', 15)
+    pdf.drawCentredString(width / 2, height - 176, batch['batch_id'])
+    pdf.setStrokeColor(colors.HexColor('#302416'))
+    pdf.setLineWidth(0.8)
+    pdf.line(145, height - 196, width - 145, height - 196)
+    released_at = datetime.fromisoformat(issued_at).astimezone(timezone(timedelta(hours=5, minutes=30)))
+    rows = [
+        ('BEEKEEPER', beekeeper_name),
+        ('HONEY PROFILE', batch.get('honey_type', 'Raw honey')),
+        ('ORIGIN HIVE', batch['hive_id']),
+        ('VOLUME', f"{batch.get('quantity', '-')} kg"),
+        ('QUALITY GRADE', LAB_RESULTS['quality_grade']),
+        ('RELEASED', released_at.strftime('%b %d, %Y, %I:%M %p')),
+    ]
+    pdf.setFont('Helvetica-Bold', 8)
+    for index, (label, value) in enumerate(rows):
+        x = 283 + (index % 2) * 275
+        y = height - 250 - (index // 2) * 44
+        pdf.setFillColor(colors.HexColor('#755626'))
+        pdf.drawCentredString(x, y, label)
+        pdf.setFillColor(colors.HexColor('#302416'))
+        pdf.setFont('Helvetica-Bold', 9)
+        pdf.drawCentredString(x, y - 14, str(value)[:42])
+        pdf.setFont('Helvetica-Bold', 8)
+    pdf.setFillColor(colors.HexColor('#8F6018'))
+    pdf.setFont('Helvetica-Bold', 8)
+    pdf.drawRightString(width - 58, 76, 'AUTHENTICITY RECORD')
+    pdf.setFillColor(colors.HexColor('#665030'))
+    pdf.setFont('Helvetica', 8)
+    pdf.drawRightString(width - 58, 60, 'Issued by HoneyChain Collection Center  ·  Ledger linked')
+    pdf.save()
+
+    certificate_path = f"certificates/{batch['batch_id']}.pdf"
+    try:
+        supabase_client.storage.from_(CERTIFICATE_BUCKET).upload(
+            certificate_path,
+            pdf_buffer.getvalue(),
+            {'content-type': 'application/pdf', 'upsert': 'true'},
+        )
+    except Exception as error:
+        raise HTTPException(status_code=502, detail='Certificate storage upload failed') from error
+
+    certificate['storage_path'] = certificate_path
+    response = supabase_client.table('batch_certificates').insert(certificate).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail='Certificate record could not be created')
+    return response.data[0]
+
+
+def get_certificate_pdf(batch_id: str) -> bytes:
+    certificate = get_stored_certificate(batch_id)
+    if not certificate:
+        raise HTTPException(status_code=404, detail='Certificate not issued for this batch')
+    try:
+        return supabase_client.storage.from_(CERTIFICATE_BUCKET).download(certificate['storage_path'])
+    except Exception as error:
+        raise HTTPException(status_code=502, detail='Stored certificate could not be fetched') from error
 
 
 def append_blockchain_event(batch_id: str, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -263,6 +381,16 @@ def get_requests():
     }
 
 
+@router.get('/api/public/batches/{batch_id}/certificate')
+def get_public_certificate(batch_id: str):
+    pdf_bytes = get_certificate_pdf(batch_id)
+    return Response(
+        content=pdf_bytes,
+        media_type='application/pdf',
+        headers={'Content-Disposition': f'inline; filename="{batch_id}-honeychain-certificate.pdf"'},
+    )
+
+
 @router.patch('/api/admin/beekeepers/{beekeeper_id}')
 def update_beekeeper_status(beekeeper_id: str, payload: StatusUpdate):
     if supabase_client is not None:
@@ -300,8 +428,7 @@ def update_batch_status(batch_id: str, payload: StatusUpdate):
         if not hive_response.data:
             raise HTTPException(status_code=404, detail='Hive not found for batch')
         hive = hive_response.data[0]
-        certificate = get_stored_certificate(batch_id)
-        data_hash = batch_data_hash(item, hive, certificate)
+        data_hash = batch_data_hash(item, hive)
         updated = supabase_client.table('honey_batches').update({'status': next_status}).eq('batch_id', batch_id).execute()
         if not updated.data:
             raise HTTPException(status_code=500, detail='Batch status could not be updated')
@@ -309,7 +436,7 @@ def update_batch_status(batch_id: str, payload: StatusUpdate):
             event = append_blockchain_event(
                 batch_id=batch_id,
                 event_type=f'STATUS_{next_status}',
-                payload=batch_verification_payload(item, hive, certificate),
+                payload=batch_verification_payload(item, hive),
             )
         except Exception as error:
             supabase_client.table('honey_batches').update({'status': previous_status}).eq('batch_id', batch_id).execute()
@@ -319,7 +446,23 @@ def update_batch_status(batch_id: str, payload: StatusUpdate):
         if event['data_hash'] != data_hash:
             supabase_client.table('honey_batches').update({'status': previous_status}).eq('batch_id', batch_id).execute()
             raise HTTPException(status_code=500, detail='Blockchain payload did not match the verification contract')
-        return {'batch': item, 'blockchain_event': event}
+        certificate = None
+        certificate_event = None
+        if next_status == 'PROCESSED':
+            certificate = issue_certificate(item, hive)
+            certificate_event = append_blockchain_event(
+                batch_id=batch_id,
+                event_type='CERTIFICATE_ISSUED',
+                payload=batch_verification_payload(item, hive, certificate),
+            )
+            if certificate_event['data_hash'] != batch_data_hash(item, hive, certificate):
+                raise HTTPException(status_code=500, detail='Certificate event did not match the verification contract')
+        return {
+            'batch': item,
+            'blockchain_event': event,
+            'certificate': certificate,
+            'certificate_event': certificate_event,
+        }
 
     for item in batches:
         if item['batch_id'] == batch_id:

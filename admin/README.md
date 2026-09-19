@@ -34,3 +34,9 @@ uvicorn app.main:app --host 0.0.0.0 --port $env:PORT
 ```
 
 Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as server-side environment variables. Do not commit `.env` or expose the service role key in frontend code.
+
+Create a private Supabase Storage bucket named `honey-certificates`. The admin
+backend creates a PDF certificate when a batch advances to `PROCESSED`, stores
+the PDF at `certificates/{batch_id}.pdf`, and records its metadata in
+`batch_certificates`. The stored PDF is available through
+`/api/public/batches/{batch_id}/certificate`.
