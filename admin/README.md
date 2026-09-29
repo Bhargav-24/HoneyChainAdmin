@@ -5,22 +5,22 @@ The admin project contains the private operations desk used to review beekeeper 
 ## Structure
 
 - `requests/` - admin operations desk HTML, JavaScript, and CSS
-- `.venv/` - admin-local Python environment
-- `requirements.txt` - reserved for admin-only Python dependencies
+- `backend/.venv/` - local Python environment for the FastAPI backend
+- `backend/requirements.txt` - Python dependencies for the backend
 
 The FastAPI backend serves the desk at `/requests` and serves its assets from `/assets/requests/`.
 
 ## Setup
 
-From the repository root:
+From the `admin/` directory:
 
 ```powershell
-cd admin
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+cd backend
+python -m venv .venv
+\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
-
-Start the main application from `backend/` as documented in [backend/README.md](../backend/README.md).
 
 ## Dynamic hosting
 

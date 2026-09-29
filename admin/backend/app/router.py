@@ -7,9 +7,10 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from reportlab.lib import colors
@@ -27,6 +28,14 @@ REQUESTS_DIR = Path(__file__).resolve().parent.parent.parent / 'requests'
 SUPABASE_URL = os.getenv('SUPABASE_URL', '').strip()
 SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '').strip() or os.getenv('SUPABASE_ANON_KEY', '').strip()
 CERTIFICATE_BUCKET = os.getenv('SUPABASE_CERTIFICATE_BUCKET', 'honey-certificates')
+BEE_IMAGE_BUCKET = os.getenv('SUPABASE_BEE_IMAGE_BUCKET', 'bee-images').strip() or 'bee-images'
+MAX_HIVE_IMAGE_SIZE = 10 * 1024 * 1024
+HIVE_IMAGE_TYPES = {
+    'image/jpeg': ('jpg', b'\xff\xd8\xff'),
+    'image/png': ('png', b'\x89PNG\r\n\x1a\n'),
+    'image/gif': ('gif', (b'GIF87a', b'GIF89a')),
+    'image/webp': ('webp', b'RIFF'),
+}
 LAB_RESULTS = {
     'quality_grade': 'A+',
     'moisture_percent': 17.4,
@@ -519,6 +528,93 @@ def get_hives():
             'status': 'monitoring',
         },
     ]
+
+
+@router.post('/api/hives/{hive_id}/image')
+async def upload_hive_image(hive_id: str, image: UploadFile = File(...)):
+    client = require_supabase()
+    content_type = (image.content_type or '').lower()
+    image_type = HIVE_IMAGE_TYPES.get(content_type)
+    if image_type is None:
+        raise HTTPException(status_code=415, detail='Upload a JPEG, PNG, GIF, or WebP image.')
+
+    image_bytes = await image.read(MAX_HIVE_IMAGE_SIZE + 1)
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail='The selected image is empty.')
+    if len(image_bytes) > MAX_HIVE_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail='Hive images must be 10 MB or smaller.')
+    signature = image_type[1]
+    if content_type == 'image/webp':
+        valid_signature = len(image_bytes) >= 12 and image_bytes.startswith(signature) and image_bytes[8:12] == b'WEBP'
+    elif isinstance(signature, tuple):
+        valid_signature = image_bytes.startswith(signature)
+    else:
+        valid_signature = image_bytes.startswith(signature)
+    if not valid_signature:
+        raise HTTPException(status_code=415, detail='The file contents do not match a supported image format.')
+
+    try:
+        current = client.table('hives').select('hive_id,image_path').eq('hive_id', hive_id).limit(1).execute()
+    except Exception as error:
+        raise HTTPException(status_code=502, detail='Hive record could not be loaded.') from error
+    if not current.data:
+        raise HTTPException(status_code=404, detail='Hive not found.')
+
+    previous_path = current.data[0].get('image_path')
+    image_path = f"hives/{hashlib.sha256(hive_id.encode('utf-8')).hexdigest()}/{uuid4().hex}.{image_type[0]}"
+    storage = client.storage.from_(BEE_IMAGE_BUCKET)
+    try:
+        storage.upload(
+            image_path,
+            image_bytes,
+            {'content-type': content_type, 'upsert': 'true'},
+        )
+        updated = client.table('hives').update({'image_path': image_path}).eq('hive_id', hive_id).execute()
+        if not updated.data:
+            storage.remove([image_path])
+            raise HTTPException(status_code=500, detail='Hive image path could not be saved.')
+    except HTTPException:
+        raise
+    except Exception as error:
+        try:
+            storage.remove([image_path])
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail='Hive image could not be saved.') from error
+
+    if previous_path and previous_path != image_path:
+        try:
+            storage.remove([previous_path])
+        except Exception:
+            pass
+    return updated.data[0]
+
+
+@router.get('/api/hives/{hive_id}/image')
+def get_hive_image(hive_id: str):
+    client = require_supabase()
+    try:
+        result = client.table('hives').select('image_path').eq('hive_id', hive_id).limit(1).execute()
+    except Exception as error:
+        raise HTTPException(status_code=502, detail='Hive record could not be loaded.') from error
+    if not result.data:
+        raise HTTPException(status_code=404, detail='Hive not found.')
+
+    image_path = result.data[0].get('image_path')
+    if not image_path:
+        raise HTTPException(status_code=404, detail='No image is registered for this hive.')
+    try:
+        image_bytes = client.storage.from_(BEE_IMAGE_BUCKET).download(image_path)
+    except Exception as error:
+        raise HTTPException(status_code=502, detail='Hive image could not be loaded.') from error
+
+    content_type = {
+        '.jpg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+    }.get(Path(image_path).suffix.lower(), 'application/octet-stream')
+    return Response(content=image_bytes, media_type=content_type, headers={'Cache-Control': 'private, max-age=300'})
 
 
 @router.get('/api/iot/hives')
