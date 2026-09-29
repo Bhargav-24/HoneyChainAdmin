@@ -2,7 +2,13 @@ const hiveSelect = document.querySelector('#hive-select');
 const hiveSummary = document.querySelector('#hive-summary');
 const sensorForm = document.querySelector('#sensor-form');
 const formMessage = document.querySelector('#form-message');
-const updateButton = document.querySelector('.update-button');
+const updateButton = sensorForm.querySelector('.update-button');
+const hiveImageForm = document.querySelector('#hive-image-form');
+const hiveImageFile = document.querySelector('#hive-image-file');
+const hiveImageButton = document.querySelector('#hive-image-button');
+const hiveImagePreview = document.querySelector('#hive-image-preview');
+const hiveImageEmpty = document.querySelector('#hive-image-empty');
+const hiveImageMessage = document.querySelector('#hive-image-message');
 
 const controls = [
   { id: 'temperature', output: 'temperature-value', format: (value) => `${Number(value).toFixed(1)} °C` },
@@ -37,6 +43,21 @@ const renderHiveSummary = () => {
   hiveSummary.textContent = `${hive.location || 'Location not supplied'} · ${hive.species || 'Species not supplied'} · ${hive.type || 'Hive type not supplied'} · Status: ${hive.status || 'Unknown'}`;
 };
 
+const renderHiveImage = () => {
+  const option = [...hiveSelect.options].find((item) => item.value === hiveSelect.value);
+  const imagePath = option?.dataset.imagePath;
+  hiveImagePreview.hidden = !imagePath;
+  hiveImageEmpty.hidden = Boolean(imagePath);
+  hiveImagePreview.removeAttribute('src');
+  if (imagePath) {
+    hiveImagePreview.src = `/api/hives/${encodeURIComponent(hiveSelect.value)}/image?v=${encodeURIComponent(imagePath)}`;
+  }
+};
+
+const updateHiveImageButton = () => {
+  hiveImageButton.disabled = !hiveSelect.value || !hiveImageFile.files.length;
+};
+
 const loadHives = async () => {
   const response = await fetch('/api/iot/hives');
   if (!response.ok) throw new Error('Registered hives could not be loaded.');
@@ -50,6 +71,7 @@ const loadHives = async () => {
     option.dataset.species = hive.bee_species || '';
     option.dataset.type = hive.hive_type || '';
     option.dataset.status = hive.status || '';
+    option.dataset.imagePath = hive.image_path || '';
     hiveSelect.appendChild(option);
   });
   if (!hives.length) {
@@ -59,9 +81,54 @@ const loadHives = async () => {
     hiveSelect.appendChild(option);
   }
   renderHiveSummary();
+  renderHiveImage();
+  updateHiveImageButton();
 };
 
-hiveSelect.addEventListener('change', renderHiveSummary);
+hiveSelect.addEventListener('change', () => {
+  renderHiveSummary();
+  renderHiveImage();
+  hiveImageMessage.textContent = '';
+  hiveImageMessage.classList.remove('error');
+  updateHiveImageButton();
+});
+hiveImageFile.addEventListener('change', updateHiveImageButton);
+hiveImagePreview.addEventListener('error', () => {
+  hiveImagePreview.hidden = true;
+  hiveImageEmpty.hidden = false;
+});
+
+hiveImageForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const hiveId = hiveSelect.value;
+  const image = hiveImageFile.files[0];
+  if (!hiveId || !image) return;
+
+  hiveImageButton.disabled = true;
+  hiveImageMessage.textContent = 'Uploading image...';
+  hiveImageMessage.classList.remove('error');
+  const formData = new FormData();
+  formData.append('image', image);
+  try {
+    const response = await fetch(`/api/hives/${encodeURIComponent(hiveId)}/image`, {
+      method: 'POST',
+      body: formData,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || 'The hive image could not be saved.');
+    const option = [...hiveSelect.options].find((item) => item.value === hiveId);
+    if (option) option.dataset.imagePath = result.image_path;
+    if (hiveSelect.value === hiveId) renderHiveImage();
+    hiveImageFile.value = '';
+    hiveImageMessage.textContent = 'Hive image saved.';
+  } catch (error) {
+    hiveImageMessage.textContent = error.message;
+    hiveImageMessage.classList.add('error');
+  } finally {
+    updateHiveImageButton();
+  }
+});
+
 sensorForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!hiveSelect.value) {

@@ -13,6 +13,8 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      - key: SUPABASE_BEE_IMAGE_BUCKET
+        value: bee-images
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: FRONTEND_URLS
